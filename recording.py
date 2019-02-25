@@ -5,6 +5,10 @@ import os, re
 
 import librosa
 
+def normed_hamming(M):
+    h = np.hamming(M)
+    return h/h.sum()
+
 class Recording(object):
 
     def __init__(self,identifier,data_folder='./EmoDB'):
@@ -13,7 +17,9 @@ class Recording(object):
         self.load_phoneme_tags(os.path.join(self.phoneme_dir,identifier+'xx.lablaut'))
         self.wav_dir = os.path.join(data_folder,'wav')
         self.raw_signal, self.fs = librosa.load(os.path.join(self.wav_dir,identifier+'.wav'))
-        self.compute_features()
+        self.mfcc_cepstrum = librosa.feature.mfcc(y=self.raw_signal,sr=self.fs,n_mfcc=20,hop_length=128)
+        self.mfcc_delta1 = librosa.feature.delta(self.mfcc_cepstrum)
+        self.mfcc_delta2 = librosa.feature.delta(self.mfcc_cepstrum,order=2)
         self.df_tags.at[len(self.df_tags)-1,'t_stop'] = len(self.raw_signal)/self.fs
 
     def read_lines_from_file(self,filepath):
@@ -54,21 +60,36 @@ class Recording(object):
             }, ignore_index=True)
         self.df_tags = df
 
-    def mean_pitch(self,raw_signal,hop_length=128):
+    def pitch_features(self,raw_signal,hop_length=128):
         pitch,mag = librosa.core.piptrack(raw_signal,hop_length=hop_length)
-        mag = (mag+0.000001).T/np.sum((mag+0.000001),axis=1)
-        return np.average(pitch,weights=mag.T,axis=0)
+        mean_pitch = np.mean(pitch,axis=0)
+        return mean_pitch
 
-    def compute_features(self,hop_length=128):
-        mfcc =  librosa.feature.mfcc(y=self.raw_signal,sr=self.fs,hop_length=hop_length,n_mfcc=20, dct_type=3)
-        pitch = self.mean_pitch(self.raw_signal,hop_length)
-        mfcc_delta = librosa.feature.delta(mfcc)
-        mfcc_delta2 = librosa.feature.delta(mfcc, order=2)
-        self.features = np.vstack([mfcc,mfcc_delta,mfcc_delta2,pitch])
+    def mfcc_deltas(self,start,stop):
+        unit = self.mfcc_cepstrum.shape[1]/(len(self.raw_signal)/self.fs)
+        start = int(np.round(unit * start))
+        if not start == 0:
+            start = start-1
+        stop = int(np.round(unit * stop))+1
+        deltas = np.vstack([self.mfcc_delta1[:,start:stop],self.mfcc_delta2[:,start:stop]])
+        return np.average(deltas,weights=normed_hamming(deltas.shape[1]),axis=1)
 
-    def get_features(self,start=0,stop=None):
+    def get_features(self,start=0,stop=None,per_phoneme=True):
         if stop == None:
-            stop = len(self.features)
-        start = np.round(len(self.raw_signal)/self.features.shape[1] * start)
-        stop = np.round(len(self.raw_signal)/self.features.shape[1] * stop)
-        return self.features[:,int(start):int(stop)]
+            stop = len(self.raw_signal/self.fs)
+
+        mfcc_deltas = self.mfcc_deltas(start,stop)
+
+        stop = int(np.round(stop*self.fs))
+        start = int(np.round(start*self.fs))
+
+        mfcc = librosa.feature.mfcc(y=self.raw_signal[start:stop],sr=self.fs,n_mfcc=20,hop_length=128)
+        pitch = self.pitch_features(self.raw_signal[start:stop],hop_length=128)
+
+        features = np.vstack([mfcc,pitch])
+        if per_phoneme:
+            mean = np.average(features,weights=normed_hamming(mfcc.shape[1]),axis=1)
+            return np.vstack([np.expand_dims(mean,-1),np.expand_dims(mfcc_deltas,-1)])
+        else:
+            features = np.vstack([features,self.mfcc_delta1,self.mfcc_delta2])
+            return np.mean(features,axis=1)

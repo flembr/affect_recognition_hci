@@ -5,10 +5,6 @@ from tqdm import tqdm_notebook as tqdm
 import os
 from recording import Recording
 
-def normed_hamming(M):
-    h = np.hamming(M)
-    return h/h.sum()
-
 def one_hot_encode(data, nb_classes):
     """Convert an iterable of indices to one-hot encoded labels."""
     targets = np.array(data).reshape(-1)
@@ -44,19 +40,15 @@ class DataHandler(object):
             if condition == 1:
                 row_list.append({
                     'ID': ID,
-                    'feature_vec': np.mean(rec.get_features(),axis=1)
+                    'feature_vec': rec.get_features(per_phoneme=False)
                 })
             if condition in [2,3]:
                 for i,row in rec.df_tags.iterrows():
-                    mfcc_cepstrum = rec.get_features(row.t_start,row.t_stop)
-                    if mfcc_cepstrum.shape[1] > 0:
-                        row_list.append({
-                            'phoneme': row.phoneme,
-                            'ID': ID,
-                            'feature_vec': np.average(mfcc_cepstrum,
-                                                      weights=normed_hamming(mfcc_cepstrum.shape[1]),
-                                                      axis=1)
-                        })
+                    row_list.append({
+                        'phoneme': row.phoneme,
+                        'ID': ID,
+                        'feature_vec': rec.get_features(row.t_start,row.t_stop)
+                    })
                 pass
 
         df = df.append(row_list)
