@@ -10,7 +10,6 @@ class MultiLayerPerceptron(object):
         self._build_model()
 
     def _build_model(self):
-        # keras.backend.clear_session()
         inputs = Input(shape=(self.layer_sizes[0],))
         state = Dropout(rate=0.5)(inputs)
         for l in self.layer_sizes[1:-1]:
